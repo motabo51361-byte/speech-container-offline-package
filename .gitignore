@@ -1,0 +1,7 @@
+archive/
+azure-ai-speech/
+staging_*/
+*.generated.yaml
+.env
+*.stdout
+*.stderr
