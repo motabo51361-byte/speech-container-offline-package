@@ -1,4 +1,4 @@
-﻿# Version: 20260706
+﻿# Version: 20260719
 # build-speech-offline-package.ps1
 # One-click offline package builder for Azure AI Speech disconnected containers.
 # - Supports speech-to-text, custom-speech-to-text, and neural-text-to-speech.
@@ -57,6 +57,8 @@ Notes:
     a disconnected commitment resource for license/runtime.
   - Speech language identification is not included because Microsoft documents it
     as not available as a disconnected container.
+  - Interactive speech-to-text mode queries MCR for the latest stable zh-TW and
+    en-US tags. Pass -Tag to skip the lookup.
 '@ | Write-Host
   exit 0
 }
@@ -144,6 +146,83 @@ function Read-ContainerChoice {
   }
 }
 
+function Get-McrTags([string]$ImageRepository) {
+  $repositoryPath = $ImageRepository -replace "^mcr\.microsoft\.com/", ""
+  if ($repositoryPath -eq $ImageRepository) {
+    throw "Unsupported MCR image repository: $ImageRepository"
+  }
+
+  $tagsUri = "https://mcr.microsoft.com/v2/$repositoryPath/tags/list"
+  $response = Invoke-RestMethod -Uri $tagsUri -Method Get -TimeoutSec 30
+  if ($null -eq $response.tags) {
+    throw "MCR returned no tags for $ImageRepository"
+  }
+
+  return @($response.tags)
+}
+
+function Get-LatestStableSpeechToTextTag([string[]]$Tags, [string]$Locale) {
+  $localePattern = [regex]::Escape($Locale.ToLowerInvariant())
+  $candidates = @(
+    foreach ($candidateTag in $Tags) {
+      if ($candidateTag -match "^(\d+\.\d+\.\d+)-amd64-$localePattern$") {
+        [pscustomobject]@{
+          Tag = [string]$candidateTag
+          Version = [version]$Matches[1]
+        }
+      }
+    }
+  )
+
+  $latest = $candidates |
+    Sort-Object -Property @{ Expression = { $_.Version }; Descending = $true } |
+    Select-Object -First 1
+
+  if ($null -eq $latest) {
+    throw "No stable amd64 Speech to text tag was found for locale $Locale"
+  }
+
+  return [string]$latest.Tag
+}
+
+function Read-SpeechToTextTag([string]$ImageRepository) {
+  Write-Host ""
+  Write-Host "Querying Microsoft Container Registry for Speech to text tags..."
+
+  try {
+    $availableTags = @(Get-McrTags $ImageRepository)
+    $zhTwTag = Get-LatestStableSpeechToTextTag $availableTags "zh-tw"
+    $enUsTag = Get-LatestStableSpeechToTextTag $availableTags "en-us"
+  } catch {
+    Write-Host ("WARNING: Could not query MCR tags: {0}" -f $_.Exception.Message)
+    $fallbackTag = Read-Host "IMAGE_TAG [latest]"
+    if ([string]::IsNullOrWhiteSpace($fallbackTag)) { return "latest" }
+    return $fallbackTag.Trim()
+  }
+
+  Write-Host "Latest stable amd64 tags:"
+  Write-Host ("  1) zh-TW  {0}" -f $zhTwTag)
+  Write-Host ("  2) en-US  {0}" -f $enUsTag)
+  Write-Host "  3) Enter an image tag manually"
+  Write-Host "INFO: One locale is packaged per run. Run the script again for the other locale."
+
+  $choice = Read-Host "Speech-to-text locale [1]"
+  if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
+
+  switch ($choice.Trim().ToLowerInvariant()) {
+    "1" { return $zhTwTag }
+    "zh-tw" { return $zhTwTag }
+    "2" { return $enUsTag }
+    "en-us" { return $enUsTag }
+    "3" {
+      $manualTag = Read-Host "IMAGE_TAG"
+      if ([string]::IsNullOrWhiteSpace($manualTag)) { Fail "IMAGE_TAG is empty" }
+      return $manualTag.Trim()
+    }
+    default { Fail "Unsupported Speech-to-text locale choice: $choice" }
+  }
+}
+
 function ConvertFrom-SecureStringToPlain([securestring]$Secure) {
   $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
   try {
@@ -211,8 +290,14 @@ function Test-EndpointReachable([string]$Uri) {
 function Invoke-DockerCapture([string[]]$ArgumentList, [string]$LogPath, [string]$StepName) {
   Write-Host $StepName
   "===== $StepName =====" | Out-File -FilePath $LogPath -Encoding utf8 -Append
-  $output = & docker @ArgumentList 2>&1
-  $exit = $LASTEXITCODE
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = & docker @ArgumentList 2>&1
+    $exit = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
   $output | Out-File -FilePath $LogPath -Encoding utf8 -Append
   if ($exit -ne 0) {
     Fail "$StepName failed. See log: $LogPath" $exit
@@ -221,7 +306,13 @@ function Invoke-DockerCapture([string[]]$ArgumentList, [string]$LogPath, [string
 }
 
 function Remove-DockerContainerQuiet([string]$Name) {
-  & docker rm -f $Name 2>$null | Out-Null
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "SilentlyContinue"
+    & docker rm -f $Name 2>&1 | Out-Null
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
 }
 
 function Append-DockerLogs([string]$Name, [string]$LogPath) {
@@ -346,8 +437,12 @@ Write-Host ("Image repository   : {0}" -f $spec.ImageRepository)
 
 if ([string]::IsNullOrWhiteSpace($Image)) {
   if (-not $PSBoundParameters.ContainsKey("Tag")) {
-    $tagInput = Read-Host "IMAGE_TAG for locale/voice [latest]"
-    if (-not [string]::IsNullOrWhiteSpace($tagInput)) { $Tag = $tagInput.Trim() }
+    if ($Container -eq "speech-to-text") {
+      $Tag = Read-SpeechToTextTag $spec.ImageRepository
+    } else {
+      $tagInput = Read-Host "IMAGE_TAG [latest]"
+      if (-not [string]::IsNullOrWhiteSpace($tagInput)) { $Tag = $tagInput.Trim() }
+    }
   }
   $Image = "$($spec.ImageRepository):$Tag"
 }

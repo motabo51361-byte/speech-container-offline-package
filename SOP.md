@@ -175,6 +175,18 @@ script 會要求選擇：
 
 接著輸入 image tag、resource key、endpoint 等資訊。
 
+選擇 `speech-to-text` 時，script 會向 MCR 即時查詢並顯示 `zh-TW` 與 `en-US` 各自最新的 stable amd64 tag：
+
+```text
+Querying Microsoft Container Registry for Speech to text tags...
+Latest stable amd64 tags:
+  1) zh-TW  5.4.0-amd64-zh-tw
+  2) en-US  5.4.0-amd64-en-us
+  3) Enter an image tag manually
+```
+
+每次執行只會打包一個 locale。若中文與英文都需要，請分別選擇後執行兩次。選單中的實際版本以執行當下 MCR 回傳為準；若已透過 `-Tag` 指定 tag，script 會略過 MCR 選單。
+
 ## 4.3 非互動範例：Speech to text
 
 ```powershell

@@ -20,6 +20,8 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\build-speech-offline-package.ps1
 ```
 
+選擇 `speech-to-text` 時，script 會直接向 MCR 查詢並顯示 `zh-TW` 與 `en-US` 各自最新的 stable tag。每次執行打包一個 locale；若兩種都需要，分別選擇後執行兩次。使用 `-Tag` 時不會顯示選單，而是直接使用指定 tag。
+
 成功後會留下：
 
 ```text
