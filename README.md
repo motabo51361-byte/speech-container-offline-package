@@ -20,13 +20,17 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\build-speech-offline-package.ps1
 ```
 
+選擇 `speech-to-text` 時，script 會直接向 MCR 查詢並顯示 `zh-TW` 與 `en-US` 各自最新的 stable tag。每次執行打包一個 locale；若兩種都需要，分別選擇後執行兩次。使用 `-Tag` 時不會顯示選單，而是直接使用指定 tag。
+
 成功後會留下：
 
 ```text
-archive\log-build-speech-offline-package_<timestamp>.log
-archive\package-azure-ai-<speech-container>-container-<timestamp>.tar.gz
-archive\SHA256SUMS.txt
+archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
+archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
+archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.sha256
 ```
+
+Speech-to-text 的 `<language-code>` 會是 `zh-tw` 或 `en-us`；build log 與 checksum 分別在對應 package 的完整檔名後加上 `.log` 與 `.sha256`。
 
 完整線上打包、Windows/Linux 離線部署、更新與 rollback 流程請看 [SOP.md](SOP.md)。
 

@@ -175,6 +175,18 @@ script 會要求選擇：
 
 接著輸入 image tag、resource key、endpoint 等資訊。
 
+選擇 `speech-to-text` 時，script 會向 MCR 即時查詢並顯示 `zh-TW` 與 `en-US` 各自最新的 stable amd64 tag：
+
+```text
+Querying Microsoft Container Registry for Speech to text tags...
+Latest stable amd64 tags:
+  1) zh-TW  5.4.0-amd64-zh-tw
+  2) en-US  5.4.0-amd64-en-us
+  3) Enter an image tag manually
+```
+
+每次執行只會打包一個 locale。若中文與英文都需要，請分別選擇後執行兩次。選單中的實際版本以執行當下 MCR 回傳為準；若已透過 `-Tag` 指定 tag，script 會略過 MCR 選單。
+
 ## 4.3 非互動範例：Speech to text
 
 ```powershell
@@ -254,18 +266,20 @@ SPEECH_LICENSE_ENDPOINT_URI
 成功後只保留：
 
 ```text
-archive\log-build-speech-offline-package_<timestamp>.log
-archive\package-azure-ai-<speech-container>-container-<timestamp>.tar.gz
-archive\SHA256SUMS.txt
+archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
+archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
+archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.sha256
 ```
+
+Speech-to-text 的 `<language-code>` 會依所選 image tag 自動填入 `zh-tw` 或 `en-us`；build log 與 checksum 一律使用完整 package 檔名加上 `.log` 與 `.sha256`。
 
 package 內容大致如下：
 
 ```text
 archive\
-  oci-azure-ai-<speech-container>.tar
+  oci-azure-ai-speech-to-text-<language-code>.tar
   run-disconnected-container-docker-compose.yaml
-  log-build-speech-offline-package_<timestamp>.log
+  package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
 azure-ai-speech\
   license\
   output\
@@ -276,12 +290,13 @@ package-manifest.txt
 檢查 SHA256：
 
 ```powershell
-Get-Content .\archive\SHA256SUMS.txt
-
-$pkg = Get-ChildItem .\archive\package-azure-ai-*-container-*.tar.gz |
+$languageCode = "zh-tw" # Change to en-us when verifying that package.
+$pkg = Get-ChildItem ".\archive\package-azure-ai-speech-to-text-$languageCode-container-*.tar.gz" |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1
+$shaFile = Get-Item "$($pkg.FullName).sha256"
 
+Get-Content $shaFile.FullName
 Get-FileHash $pkg.FullName -Algorithm SHA256
 ```
 
@@ -309,8 +324,13 @@ New-Item -ItemType Directory -Path $ReleaseDir -Force
 將下列檔案複製到 release 目錄：
 
 ```text
-package-azure-ai-<speech-container>-container-<timestamp>.tar.gz
-SHA256SUMS.txt
+package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
+package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
+package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.sha256
+
+package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz
+package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz.log
+package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz.sha256
 ```
 
 切換目錄：
@@ -322,16 +342,17 @@ cd $ReleaseDir
 ## 5.2 驗證 package
 
 ```powershell
-Get-Content .\SHA256SUMS.txt
-
-$pkg = Get-ChildItem .\package-azure-ai-*-container-*.tar.gz |
+$languageCode = "zh-tw" # Change to en-us when verifying that package.
+$pkg = Get-ChildItem ".\package-azure-ai-speech-to-text-$languageCode-container-*.tar.gz" |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1
+$shaFile = Get-Item "$($pkg.FullName).sha256"
 
+Get-Content $shaFile.FullName
 Get-FileHash $pkg.FullName -Algorithm SHA256
 ```
 
-確認 `Get-FileHash` 的值與 `SHA256SUMS.txt` 一致。
+確認 `Get-FileHash` 的值與 `$shaFile` 指定的 checksum 檔一致。
 
 ## 5.3 解壓 package
 
@@ -464,19 +485,22 @@ sudo chown -R "$USER":"$USER" /opt/azure-ai-speech-offline
 cd /opt/azure-ai-speech-offline/releases/20260706_150000
 ```
 
-將 package 與 `SHA256SUMS.txt` 放進此目錄。
+將 package、同名的 `.log` build log 與 `.sha256` checksum 檔放進此目錄；兩個 sidecar 檔名都會完整保留 package 名稱。
 
 ## 6.3 驗證 package
 
 ```bash
-sha256sum -c SHA256SUMS.txt
+LANGUAGE_CODE="zh-tw" # Change to en-us when verifying that package.
+PACKAGE="$(ls -t package-azure-ai-speech-to-text-${LANGUAGE_CODE}-container-*.tar.gz | head -n 1)"
+SHA_FILE="${PACKAGE}.sha256"
+sha256sum -c "$SHA_FILE"
 ```
 
 若 package 檔名被修改，改用手動比對：
 
 ```bash
-sha256sum package-azure-ai-*-container-*.tar.gz
-cat SHA256SUMS.txt
+sha256sum "$PACKAGE"
+cat "$SHA_FILE"
 ```
 
 ## 6.4 解壓 package

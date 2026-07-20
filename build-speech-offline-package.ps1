@@ -1,4 +1,4 @@
-﻿# Version: 20260706
+﻿# Version: 20260720
 # build-speech-offline-package.ps1
 # One-click offline package builder for Azure AI Speech disconnected containers.
 # - Supports speech-to-text, custom-speech-to-text, and neural-text-to-speech.
@@ -7,7 +7,7 @@
 # - For custom speech to text, optionally downloads the custom/base model first.
 # - Generates run-disconnected-container-docker-compose.yaml.
 # - Packages image tar, license, optional models, compose, and logs into tar.gz.
-# - Prints SHA256 and writes archive\SHA256SUMS.txt.
+# - Writes matching <package>.tar.gz.log and <package>.tar.gz.sha256 sidecar files.
 
 [CmdletBinding()]
 param(
@@ -57,6 +57,8 @@ Notes:
     a disconnected commitment resource for license/runtime.
   - Speech language identification is not included because Microsoft documents it
     as not available as a disconnected container.
+  - Interactive speech-to-text mode queries MCR for the latest stable zh-TW and
+    en-US tags. Pass -Tag to skip the lookup.
 '@ | Write-Host
   exit 0
 }
@@ -144,6 +146,102 @@ function Read-ContainerChoice {
   }
 }
 
+function Get-McrTags([string]$ImageRepository) {
+  $repositoryPath = $ImageRepository -replace "^mcr\.microsoft\.com/", ""
+  if ($repositoryPath -eq $ImageRepository) {
+    throw "Unsupported MCR image repository: $ImageRepository"
+  }
+
+  $tagsUri = "https://mcr.microsoft.com/v2/$repositoryPath/tags/list"
+  $response = Invoke-RestMethod -Uri $tagsUri -Method Get -TimeoutSec 30
+  if ($null -eq $response.tags) {
+    throw "MCR returned no tags for $ImageRepository"
+  }
+
+  return @($response.tags)
+}
+
+function Get-LatestStableSpeechToTextTag([string[]]$Tags, [string]$Locale) {
+  $localePattern = [regex]::Escape($Locale.ToLowerInvariant())
+  $candidates = @(
+    foreach ($candidateTag in $Tags) {
+      if ($candidateTag -match "^(\d+\.\d+\.\d+)-amd64-$localePattern$") {
+        [pscustomobject]@{
+          Tag = [string]$candidateTag
+          Version = [version]$Matches[1]
+        }
+      }
+    }
+  )
+
+  $latest = $candidates |
+    Sort-Object -Property @{ Expression = { $_.Version }; Descending = $true } |
+    Select-Object -First 1
+
+  if ($null -eq $latest) {
+    throw "No stable amd64 Speech to text tag was found for locale $Locale"
+  }
+
+  return [string]$latest.Tag
+}
+
+function Read-SpeechToTextTag([string]$ImageRepository) {
+  Write-Host ""
+  Write-Host "Querying Microsoft Container Registry for Speech to text tags..."
+
+  try {
+    $availableTags = @(Get-McrTags $ImageRepository)
+    $zhTwTag = Get-LatestStableSpeechToTextTag $availableTags "zh-tw"
+    $enUsTag = Get-LatestStableSpeechToTextTag $availableTags "en-us"
+  } catch {
+    Write-Host ("WARNING: Could not query MCR tags: {0}" -f $_.Exception.Message)
+    $fallbackTag = Read-Host "IMAGE_TAG [latest]"
+    if ([string]::IsNullOrWhiteSpace($fallbackTag)) { return "latest" }
+    return $fallbackTag.Trim()
+  }
+
+  Write-Host "Latest stable amd64 tags:"
+  Write-Host ("  1) zh-TW  {0}" -f $zhTwTag)
+  Write-Host ("  2) en-US  {0}" -f $enUsTag)
+  Write-Host "  3) Enter an image tag manually"
+  Write-Host "INFO: One locale is packaged per run. Run the script again for the other locale."
+
+  $choice = Read-Host "Speech-to-text locale [1]"
+  if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
+
+  switch ($choice.Trim().ToLowerInvariant()) {
+    "1" { return $zhTwTag }
+    "zh-tw" { return $zhTwTag }
+    "2" { return $enUsTag }
+    "en-us" { return $enUsTag }
+    "3" {
+      $manualTag = Read-Host "IMAGE_TAG"
+      if ([string]::IsNullOrWhiteSpace($manualTag)) { Fail "IMAGE_TAG is empty" }
+      return $manualTag.Trim()
+    }
+    default { Fail "Unsupported Speech-to-text locale choice: $choice" }
+  }
+}
+
+function Get-SpeechToTextLocaleFromImage([string]$ImageRef) {
+  $tagSeparatorIndex = $ImageRef.LastIndexOf(":")
+  if ($tagSeparatorIndex -lt 0 -or $tagSeparatorIndex -eq ($ImageRef.Length - 1)) {
+    return $null
+  }
+
+  $imageTag = $ImageRef.Substring($tagSeparatorIndex + 1).ToLowerInvariant()
+  if ($imageTag -eq "latest") {
+    return "en-us"
+  }
+
+  $imageTagWithoutPrerelease = $imageTag -replace "-preview$", ""
+  if ($imageTagWithoutPrerelease -match "^\d+\.\d+\.\d+-[^-]+-(?<locale>[a-z]{2,3}-[a-z]{2}(?:-[a-z]+)?)$") {
+    return $Matches["locale"].ToLowerInvariant()
+  }
+
+  return $null
+}
+
 function ConvertFrom-SecureStringToPlain([securestring]$Secure) {
   $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
   try {
@@ -211,8 +309,14 @@ function Test-EndpointReachable([string]$Uri) {
 function Invoke-DockerCapture([string[]]$ArgumentList, [string]$LogPath, [string]$StepName) {
   Write-Host $StepName
   "===== $StepName =====" | Out-File -FilePath $LogPath -Encoding utf8 -Append
-  $output = & docker @ArgumentList 2>&1
-  $exit = $LASTEXITCODE
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = & docker @ArgumentList 2>&1
+    $exit = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
   $output | Out-File -FilePath $LogPath -Encoding utf8 -Append
   if ($exit -ne 0) {
     Fail "$StepName failed. See log: $LogPath" $exit
@@ -221,7 +325,13 @@ function Invoke-DockerCapture([string[]]$ArgumentList, [string]$LogPath, [string
 }
 
 function Remove-DockerContainerQuiet([string]$Name) {
-  & docker rm -f $Name 2>$null | Out-Null
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "SilentlyContinue"
+    & docker rm -f $Name 2>&1 | Out-Null
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
 }
 
 function Append-DockerLogs([string]$Name, [string]$LogPath) {
@@ -346,8 +456,12 @@ Write-Host ("Image repository   : {0}" -f $spec.ImageRepository)
 
 if ([string]::IsNullOrWhiteSpace($Image)) {
   if (-not $PSBoundParameters.ContainsKey("Tag")) {
-    $tagInput = Read-Host "IMAGE_TAG for locale/voice [latest]"
-    if (-not [string]::IsNullOrWhiteSpace($tagInput)) { $Tag = $tagInput.Trim() }
+    if ($Container -eq "speech-to-text") {
+      $Tag = Read-SpeechToTextTag $spec.ImageRepository
+    } else {
+      $tagInput = Read-Host "IMAGE_TAG [latest]"
+      if (-not [string]::IsNullOrWhiteSpace($tagInput)) { $Tag = $tagInput.Trim() }
+    }
   }
   $Image = "$($spec.ImageRepository):$Tag"
 }
@@ -413,16 +527,28 @@ $OutputDir = Join-Path $WorkRoot "output"
 $ModelsDir = Join-Path $WorkRoot "models"
 $ArchiveDir = Join-Path $PWD "archive"
 
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$buildLog = "log-build-speech-offline-package_$timestamp.log"
-$buildLogPath = Join-Path $ArchiveDir $buildLog
+$artifactLocale = $null
+$imageTarName = $spec.ImageTarName
+$packageSlug = $spec.PackageSlug
 
-$imageTarPath = Join-Path $ArchiveDir $spec.ImageTarName
+if ($Container -eq "speech-to-text") {
+  $artifactLocale = Get-SpeechToTextLocaleFromImage $Image
+  if (-not [string]::IsNullOrWhiteSpace($artifactLocale)) {
+    $imageTarName = "oci-azure-ai-speech-to-text-$artifactLocale.tar"
+    $packageSlug = "$packageSlug-$artifactLocale"
+  }
+}
+
+$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$pkgName = "package-$packageSlug-container-$timestamp.tar.gz"
+$pkgPath = Join-Path $ArchiveDir $pkgName
+$buildLog = "$pkgName.log"
+$buildLogPath = Join-Path $ArchiveDir $buildLog
+$shaFileName = "$pkgName.sha256"
+
+$imageTarPath = Join-Path $ArchiveDir $imageTarName
 $runComposeName = "run-disconnected-container-docker-compose.yaml"
 $runComposePath = Join-Path $ArchiveDir $runComposeName
-
-$pkgName = "package-$($spec.PackageSlug)-container-$timestamp.tar.gz"
-$pkgPath = Join-Path $ArchiveDir $pkgName
 
 $success = $false
 $licenseContainerName = "speech-license-download-$timestamp"
@@ -576,6 +702,7 @@ try {
 Package timestamp: $timestamp
 Container: $Container
 Image: $Image
+Locale: $artifactLocale
 Runtime host URL: $($spec.HostProtocol)://localhost:$Port
 Memory: $Memory
 CPUs: $Cpus
@@ -583,7 +710,7 @@ Generated by: build-speech-offline-package.ps1
 "@ | Out-File -FilePath $manifestPath -Encoding utf8 -Force
 
   Copy-Item $runComposePath (Join-Path $staging "archive\$runComposeName")
-  Copy-Item $imageTarPath (Join-Path $staging "archive\$($spec.ImageTarName)")
+  Copy-Item $imageTarPath (Join-Path $staging "archive\$imageTarName")
   Copy-Item $buildLogPath (Join-Path $staging "archive\$buildLog")
 
   Push-Location $staging
@@ -608,13 +735,13 @@ Generated by: build-speech-offline-package.ps1
   Write-Host ("SHA256 : {0}" -f $h.Hash)
   Write-Host "========================================"
 
-  $shaFile = Join-Path $ArchiveDir "SHA256SUMS.txt"
+  $shaFile = Join-Path $ArchiveDir $shaFileName
   $pkgFileName = [System.IO.Path]::GetFileName($pkgPath)
 
   "{0}  {1}" -f $h.Hash.ToLower(), $pkgFileName |
     Out-File -FilePath $shaFile -Encoding ascii -Force
 
-  Write-Host "SHA256SUMS.txt generated:"
+  Write-Host "$shaFileName generated:"
   Write-Host "  $shaFile"
 
   $success = $true
@@ -640,7 +767,7 @@ finally {
     Write-Host "Cleanup done. Remaining artifacts:"
     Write-Host "  - $buildLogPath"
     Write-Host "  - $pkgPath"
-    Write-Host "  - $(Join-Path $ArchiveDir 'SHA256SUMS.txt')"
+    Write-Host "  - $shaFile"
   }
 }
 
