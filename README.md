@@ -25,10 +25,13 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 成功後會留下：
 
 ```text
-archive\log-build-speech-offline-package_<timestamp>.log
-archive\package-azure-ai-<speech-container>-container-<timestamp>.tar.gz
+archive\log-build-speech-offline-package_<language-code>_<timestamp>.log
+archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
+archive\oci-azure-ai-speech-to-text-<language-code>.tar
 archive\SHA256SUMS.txt
 ```
+
+Speech-to-text 的 `<language-code>` 會是 `zh-tw` 或 `en-us`；其他 container 類型維持不含 language code 的既有檔名。
 
 完整線上打包、Windows/Linux 離線部署、更新與 rollback 流程請看 [SOP.md](SOP.md)。
 

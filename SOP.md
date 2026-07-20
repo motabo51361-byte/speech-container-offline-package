@@ -266,18 +266,20 @@ SPEECH_LICENSE_ENDPOINT_URI
 成功後只保留：
 
 ```text
-archive\log-build-speech-offline-package_<timestamp>.log
-archive\package-azure-ai-<speech-container>-container-<timestamp>.tar.gz
+archive\log-build-speech-offline-package_<language-code>_<timestamp>.log
+archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
 archive\SHA256SUMS.txt
 ```
+
+Speech-to-text 的 `<language-code>` 會依所選 image tag 自動填入 `zh-tw` 或 `en-us`；其他 container 類型維持原檔名。
 
 package 內容大致如下：
 
 ```text
 archive\
-  oci-azure-ai-<speech-container>.tar
+  oci-azure-ai-speech-to-text-<language-code>.tar
   run-disconnected-container-docker-compose.yaml
-  log-build-speech-offline-package_<timestamp>.log
+  log-build-speech-offline-package_<language-code>_<timestamp>.log
 azure-ai-speech\
   license\
   output\
