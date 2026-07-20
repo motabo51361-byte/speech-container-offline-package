@@ -7,7 +7,7 @@
 # - For custom speech to text, optionally downloads the custom/base model first.
 # - Generates run-disconnected-container-docker-compose.yaml.
 # - Packages image tar, license, optional models, compose, and logs into tar.gz.
-# - Prints SHA256 and writes a locale-specific checksum file for speech-to-text.
+# - Prints SHA256 and writes a matching <package>.tar.gz.sha256 sidecar file.
 
 [CmdletBinding()]
 param(
@@ -531,7 +531,6 @@ $artifactLocale = $null
 $imageTarName = $spec.ImageTarName
 $packageSlug = $spec.PackageSlug
 $logLocaleSuffix = ""
-$shaFileName = "SHA256SUMS.txt"
 
 if ($Container -eq "speech-to-text") {
   $artifactLocale = Get-SpeechToTextLocaleFromImage $Image
@@ -539,7 +538,6 @@ if ($Container -eq "speech-to-text") {
     $imageTarName = "oci-azure-ai-speech-to-text-$artifactLocale.tar"
     $packageSlug = "$packageSlug-$artifactLocale"
     $logLocaleSuffix = "_$artifactLocale"
-    $shaFileName = "SHA256SUMS-$artifactLocale.txt"
   }
 }
 
@@ -553,6 +551,7 @@ $runComposePath = Join-Path $ArchiveDir $runComposeName
 
 $pkgName = "package-$packageSlug-container-$timestamp.tar.gz"
 $pkgPath = Join-Path $ArchiveDir $pkgName
+$shaFileName = "$pkgName.sha256"
 
 $success = $false
 $licenseContainerName = "speech-license-download-$timestamp"
