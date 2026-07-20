@@ -266,12 +266,12 @@ SPEECH_LICENSE_ENDPOINT_URI
 成功後只保留：
 
 ```text
-archive\log-build-speech-offline-package_<language-code>_<timestamp>.log
 archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
+archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
 archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.sha256
 ```
 
-Speech-to-text 的 `<language-code>` 會依所選 image tag 自動填入 `zh-tw` 或 `en-us`；checksum 檔一律使用完整 package 檔名加上 `.sha256`。
+Speech-to-text 的 `<language-code>` 會依所選 image tag 自動填入 `zh-tw` 或 `en-us`；build log 與 checksum 一律使用完整 package 檔名加上 `.log` 與 `.sha256`。
 
 package 內容大致如下：
 
@@ -279,7 +279,7 @@ package 內容大致如下：
 archive\
   oci-azure-ai-speech-to-text-<language-code>.tar
   run-disconnected-container-docker-compose.yaml
-  log-build-speech-offline-package_<language-code>_<timestamp>.log
+  package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
 azure-ai-speech\
   license\
   output\
@@ -325,9 +325,11 @@ New-Item -ItemType Directory -Path $ReleaseDir -Force
 
 ```text
 package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
+package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
 package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.sha256
 
 package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz
+package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz.log
 package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz.sha256
 ```
 
@@ -483,7 +485,7 @@ sudo chown -R "$USER":"$USER" /opt/azure-ai-speech-offline
 cd /opt/azure-ai-speech-offline/releases/20260706_150000
 ```
 
-將 package 與同名的 `.sha256` checksum 檔放進此目錄；checksum 檔名會完整保留 package 名稱。
+將 package、同名的 `.log` build log 與 `.sha256` checksum 檔放進此目錄；兩個 sidecar 檔名都會完整保留 package 名稱。
 
 ## 6.3 驗證 package
 

@@ -7,7 +7,7 @@
 # - For custom speech to text, optionally downloads the custom/base model first.
 # - Generates run-disconnected-container-docker-compose.yaml.
 # - Packages image tar, license, optional models, compose, and logs into tar.gz.
-# - Prints SHA256 and writes a matching <package>.tar.gz.sha256 sidecar file.
+# - Writes matching <package>.tar.gz.log and <package>.tar.gz.sha256 sidecar files.
 
 [CmdletBinding()]
 param(
@@ -530,28 +530,25 @@ $ArchiveDir = Join-Path $PWD "archive"
 $artifactLocale = $null
 $imageTarName = $spec.ImageTarName
 $packageSlug = $spec.PackageSlug
-$logLocaleSuffix = ""
 
 if ($Container -eq "speech-to-text") {
   $artifactLocale = Get-SpeechToTextLocaleFromImage $Image
   if (-not [string]::IsNullOrWhiteSpace($artifactLocale)) {
     $imageTarName = "oci-azure-ai-speech-to-text-$artifactLocale.tar"
     $packageSlug = "$packageSlug-$artifactLocale"
-    $logLocaleSuffix = "_$artifactLocale"
   }
 }
 
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$buildLog = "log-build-speech-offline-package${logLocaleSuffix}_$timestamp.log"
+$pkgName = "package-$packageSlug-container-$timestamp.tar.gz"
+$pkgPath = Join-Path $ArchiveDir $pkgName
+$buildLog = "$pkgName.log"
 $buildLogPath = Join-Path $ArchiveDir $buildLog
+$shaFileName = "$pkgName.sha256"
 
 $imageTarPath = Join-Path $ArchiveDir $imageTarName
 $runComposeName = "run-disconnected-container-docker-compose.yaml"
 $runComposePath = Join-Path $ArchiveDir $runComposeName
-
-$pkgName = "package-$packageSlug-container-$timestamp.tar.gz"
-$pkgPath = Join-Path $ArchiveDir $pkgName
-$shaFileName = "$pkgName.sha256"
 
 $success = $false
 $licenseContainerName = "speech-license-download-$timestamp"
