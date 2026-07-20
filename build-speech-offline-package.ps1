@@ -336,8 +336,19 @@ function Remove-DockerContainerQuiet([string]$Name) {
 
 function Append-DockerLogs([string]$Name, [string]$LogPath) {
   "===== docker logs $Name =====" | Out-File -FilePath $LogPath -Encoding utf8 -Append
-  $logs = & docker logs $Name 2>&1
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $logs = & docker logs $Name 2>&1
+    $exit = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
   $logs | Out-File -FilePath $LogPath -Encoding utf8 -Append
+  if ($exit -ne 0) {
+    "WARNING: docker logs exited with code $exit." | Out-File -FilePath $LogPath -Encoding utf8 -Append
+  }
 }
 
 function Wait-ForLicense([string]$ContainerName, [string]$LicenseDir, [string]$LogPath, [int]$TimeoutMinutes) {
