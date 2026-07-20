@@ -268,7 +268,7 @@ SPEECH_LICENSE_ENDPOINT_URI
 ```text
 archive\log-build-speech-offline-package_<language-code>_<timestamp>.log
 archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
-archive\SHA256SUMS.txt
+archive\SHA256SUMS-<language-code>.txt
 ```
 
 Speech-to-text 的 `<language-code>` 會依所選 image tag 自動填入 `zh-tw` 或 `en-us`；其他 container 類型維持原檔名。
@@ -290,9 +290,11 @@ package-manifest.txt
 檢查 SHA256：
 
 ```powershell
-Get-Content .\archive\SHA256SUMS.txt
+$languageCode = "zh-tw" # Change to en-us when verifying that package.
+$shaFile = Get-Item ".\archive\SHA256SUMS-$languageCode.txt"
+Get-Content $shaFile.FullName
 
-$pkg = Get-ChildItem .\archive\package-azure-ai-*-container-*.tar.gz |
+$pkg = Get-ChildItem ".\archive\package-azure-ai-speech-to-text-$languageCode-container-*.tar.gz" |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1
 
@@ -323,7 +325,10 @@ New-Item -ItemType Directory -Path $ReleaseDir -Force
 將下列檔案複製到 release 目錄：
 
 ```text
-package-azure-ai-<speech-container>-container-<timestamp>.tar.gz
+package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
+SHA256SUMS-<language-code>.txt
+
+package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz
 SHA256SUMS.txt
 ```
 
@@ -336,16 +341,18 @@ cd $ReleaseDir
 ## 5.2 驗證 package
 
 ```powershell
-Get-Content .\SHA256SUMS.txt
+$languageCode = "zh-tw" # Change to en-us when verifying that package.
+$shaFile = Get-Item ".\SHA256SUMS-$languageCode.txt"
+Get-Content $shaFile.FullName
 
-$pkg = Get-ChildItem .\package-azure-ai-*-container-*.tar.gz |
+$pkg = Get-ChildItem ".\package-azure-ai-speech-to-text-$languageCode-container-*.tar.gz" |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1
 
 Get-FileHash $pkg.FullName -Algorithm SHA256
 ```
 
-確認 `Get-FileHash` 的值與 `SHA256SUMS.txt` 一致。
+確認 `Get-FileHash` 的值與 `$shaFile` 指定的 checksum 檔一致。
 
 ## 5.3 解壓 package
 
@@ -478,19 +485,21 @@ sudo chown -R "$USER":"$USER" /opt/azure-ai-speech-offline
 cd /opt/azure-ai-speech-offline/releases/20260706_150000
 ```
 
-將 package 與 `SHA256SUMS.txt` 放進此目錄。
+將 package 與對應的 checksum 檔放進此目錄；speech-to-text 的檔名會包含 `zh-tw` 或 `en-us`。
 
 ## 6.3 驗證 package
 
 ```bash
-sha256sum -c SHA256SUMS.txt
+LANGUAGE_CODE="zh-tw" # Change to en-us when verifying that package.
+SHA_FILE="SHA256SUMS-${LANGUAGE_CODE}.txt"
+sha256sum -c "$SHA_FILE"
 ```
 
 若 package 檔名被修改，改用手動比對：
 
 ```bash
 sha256sum package-azure-ai-*-container-*.tar.gz
-cat SHA256SUMS.txt
+cat "$SHA_FILE"
 ```
 
 ## 6.4 解壓 package
