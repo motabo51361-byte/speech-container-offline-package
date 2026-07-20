@@ -98,7 +98,62 @@ SPEECH_LICENSE_KEY
 SPEECH_LICENSE_ENDPOINT_URI
 ```
 
-`MODEL_ID` 可從 Speech Studio / Custom Speech portal 的 model detail 取得。
+### 2.3.1 查詢 `SPEECH_MODEL_KEY`
+
+`SPEECH_MODEL_KEY` 必須來自存放 custom/base model 的 **Regular Speech resource**（S0 或 Speech to Text Custom commitment tier），不能使用 DC0 disconnected resource 的 key。
+
+1. 登入 [Azure Portal](https://portal.azure.com)。
+2. 開啟存放模型的專用 Speech resource。
+3. 確認 resource type/kind 是 `SpeechServices`，pricing tier 是 `S0` 或 Speech to Text Custom commitment tier。
+4. 在左側選單開啟 **Keys and Endpoint**。
+5. 複製 `KEY 1` 或 `KEY 2`，作為 `SPEECH_MODEL_KEY`。
+
+請勿將 key 寫入 SOP、Git、截圖或一般 log。互動執行 script 時，key 不會顯示在 console。
+
+### 2.3.2 查詢 `SPEECH_MODEL_ENDPOINT_URI`
+
+在同一個 Speech resource 的 **Keys and Endpoint** 頁面，複製 `Endpoint` 欄位的完整 URL，作為 `SPEECH_MODEL_ENDPOINT_URI`，例如：
+
+```text
+https://<speech-resource-name>.cognitiveservices.azure.com/
+```
+
+實際格式可能是區域 endpoint；請以 Azure Portal 顯示的值為準，不要自行猜測或手動改成其他 region。這個 endpoint 必須與 `SPEECH_MODEL_KEY` 來自同一個 Speech resource，也不是 Custom Speech **Deploy models** 頁面顯示的 REST/WebSocket endpoint。
+
+### 2.3.3 查詢 `MODEL_ID`
+
+1. 登入 [Speech Studio](https://speech.microsoft.com/portal)。
+2. 在右上角選擇 subscription 與存放模型的專用 Speech resource。
+3. 進入 **Custom speech**，開啟對應 locale 的 project。
+4. 進入 **Train custom models**。
+5. 開啟狀態為 `Succeeded` 的模型，在 model detail 複製 **Model ID**，作為 `MODEL_ID`。
+
+`MODEL_ID` 是 custom/base model 的 ID，不是下列值：
+
+- Custom Speech project ID。
+- **Deploy models** 頁面的 Endpoint ID。
+- **Calling the custom endpoint** 中 REST/WebSocket URL 的 `cid`。
+
+若模型是從舊 resource 複製到新的專用 Speech resource，請使用複製後模型的新 `MODEL_ID`，並搭配目標 Speech resource 的 key 與 endpoint。
+
+### 2.3.4 執行前核對
+
+三個 model 參數必須指向同一個 Regular Speech resource：
+
+```text
+SPEECH_MODEL_KEY          = 專用 S0 Speech resource 的 KEY 1 或 KEY 2
+SPEECH_MODEL_ENDPOINT_URI = 同一個專用 S0 Speech resource 的 Endpoint
+MODEL_ID                  = 同一個專用 S0 Speech resource 內的模型 ID
+```
+
+下載 disconnected license 則使用另一組 DC0 resource 參數：
+
+```text
+SPEECH_LICENSE_KEY
+SPEECH_LICENSE_ENDPOINT_URI
+```
+
+不要交叉混用 model resource 與 license resource 的 key/endpoint。
 
 ---
 
