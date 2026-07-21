@@ -20,7 +20,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\build-speech-offline-package.ps1
 ```
 
-若未指定 `-Port`，互動模式會詢問離線 runtime 的 host port，預設為 `5000`。例如輸入 `5001`，交付 package 內的 Compose 會產生 `"5001:5000"`；也可以直接使用 `-Port 5001` 略過詢問。此設定只控制產出的 Compose，model/license 下載 container 會使用獨立的臨時 port。
+若未指定 `-Port`，互動模式會詢問離線 runtime 的 host port，預設為 `5000`。例如輸入 `5001`，交付 package 內的 Compose 會產生 `"5001:5000"`；也可以直接使用 `-Port 5001` 略過詢問。此設定只控制產出的 Compose，model/license 下載 container 會使用獨立的臨時 port。Compose 的 service、`container_name` 與 network name 也會依 container 類型、locale（可辨識時）及 host port 自動產生唯一名稱，讓多個 package 能在同一台主機並行。
 
 選擇 `speech-to-text` 時，script 會直接向 MCR 查詢並顯示 `zh-TW` 與 `en-US` 各自最新的 stable tag。每次執行打包一個 locale；若兩種都需要，分別選擇後執行兩次。使用 `-Tag` 時不會顯示選單，而是直接使用指定 tag。
 

@@ -236,6 +236,17 @@ OFFLINE_RUNTIME_HOST_PORT [5000]:
 
 直接按 Enter 會使用 host port `5000`。例如輸入 `5001`，產出的 Compose 會設定 `"5001:5000"`，也就是 host `5001` 對應 container 內固定的 `5000`。這個設定只影響產出的 `run-disconnected-container-docker-compose.yaml`；model/license 下載 container 會使用獨立的臨時 port。非互動執行可直接加上 `-Port 5001`。
 
+script 會依 container 類型、可辨識的 locale 與 host port，自動產生唯一的 Compose service、`container_name` 與 network name。例如：
+
+```text
+zh-TW STT，host port 5001 -> azure-ai-speech-stt-zh-tw-5001
+en-US STT，host port 5002 -> azure-ai-speech-stt-en-us-5002
+Custom STT，host port 5003 -> azure-ai-speech-custom-stt-5003
+Neural TTS，host port 5004 -> azure-ai-speech-ntts-5004
+```
+
+實際名稱也會寫入 package 內的 `package-manifest.txt`。只要每個 package 選擇不同且現場未被占用的 host port，便不需要手動修改 run YAML。每個 package 仍應解壓到獨立的 release 目錄，避免相對路徑的 license、model 與 output volume 互相覆蓋。
+
 選擇 `speech-to-text` 時，script 會向 MCR 即時查詢並顯示 `zh-TW` 與 `en-US` 各自最新的 stable amd64 tag：
 
 ```text
@@ -470,12 +481,10 @@ docker ps --filter "name=azure-ai-speech"
 查看 log：
 
 ```powershell
-docker logs azure-ai-speech-stt
-docker logs azure-ai-speech-custom-stt
-docker logs azure-ai-speech-ntts
+docker logs <runtime-container-name-from-package-manifest>
 ```
 
-三個指令只會有一個符合本次部署的 container。
+Runtime container name 可從 `package-manifest.txt` 取得，也可由前一個 `docker ps` 指令確認。
 
 ## 5.6 驗證服務
 
@@ -630,12 +639,10 @@ docker ps --filter "name=azure-ai-speech"
 查看 log：
 
 ```bash
-docker logs azure-ai-speech-stt
-docker logs azure-ai-speech-custom-stt
-docker logs azure-ai-speech-ntts
+docker logs <runtime-container-name-from-package-manifest>
 ```
 
-三個指令只會有一個符合本次部署的 container。
+Runtime container name 可從 `package-manifest.txt` 取得，也可由前一個 `docker ps` 指令確認。
 
 ## 6.8 驗證服務
 
@@ -891,7 +898,7 @@ Test-NetConnection mcr.microsoft.com -Port 443
 - 使用 disconnected resource 下載 model，而不是 regular Speech resource。
 - `MODEL_ID` 錯誤。
 - custom model 未完成訓練或未在該 resource/subscription 下。
-- port `5000` 被占用，model download container 無法啟動。
+- Docker 無法為 model download container 綁定自動選取的臨時 host port。
 
 處理：
 
@@ -906,9 +913,7 @@ docker logs <container-name>
 
 ```powershell
 docker ps -a --filter "name=azure-ai-speech"
-docker logs azure-ai-speech-stt
-docker logs azure-ai-speech-custom-stt
-docker logs azure-ai-speech-ntts
+docker logs <runtime-container-name-from-package-manifest>
 ```
 
 確認掛載目錄：
