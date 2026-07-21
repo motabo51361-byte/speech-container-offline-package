@@ -1,4 +1,4 @@
-﻿# Version: 20260720
+﻿# Version: 20260721
 # build-speech-offline-package.ps1
 # One-click offline package builder for Azure AI Speech disconnected containers.
 # - Supports speech-to-text, custom-speech-to-text, and neural-text-to-speech.
@@ -23,6 +23,7 @@ param(
 
   [string]$Memory,
   [string]$Cpus,
+  [ValidateRange(1, 65535)]
   [int]$Port = 5000,
 
   [int]$LicenseDownloadTimeoutMinutes = 15,
@@ -43,6 +44,7 @@ Usage:
   .\build-speech-offline-package.ps1 -Container speech-to-text -Tag latest
   .\build-speech-offline-package.ps1 -Container neural-text-to-speech -Tag 3.11.0-amd64-en-us-arianeural
   .\build-speech-offline-package.ps1 -Container custom-speech-to-text -ModelId <model-id>
+  .\build-speech-offline-package.ps1 -Container speech-to-text -Port 5001
 
 Optional environment variables:
   SPEECH_LICENSE_KEY
@@ -57,6 +59,8 @@ Notes:
     a disconnected commitment resource for license/runtime.
   - Speech language identification is not included because Microsoft documents it
     as not available as a disconnected container.
+  - If -Port is omitted, interactive mode asks for the offline runtime host port.
+    The generated Compose maps that host port to container port 5000.
   - Interactive speech-to-text mode queries MCR for the latest stable zh-TW and
     en-US tags. Pass -Tag to skip the lookup.
 '@ | Write-Host
@@ -143,6 +147,32 @@ function Read-ContainerChoice {
     "custom-speech-to-text" { return "custom-speech-to-text" }
     "neural-text-to-speech" { return "neural-text-to-speech" }
     default { Fail "Unsupported container type: $choice" }
+  }
+}
+
+function Get-AvailableTcpPort {
+  $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, 0)
+  try {
+    $listener.Start()
+    return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+  } finally {
+    $listener.Stop()
+  }
+}
+
+function Read-HostPort([int]$DefaultPort = 5000) {
+  while ($true) {
+    $portInput = Read-Host "OFFLINE_RUNTIME_HOST_PORT [$DefaultPort]"
+    if ([string]::IsNullOrWhiteSpace($portInput)) {
+      return $DefaultPort
+    }
+
+    $candidate = 0
+    if ([int]::TryParse($portInput.Trim(), [ref]$candidate) -and $candidate -ge 1 -and $candidate -le 65535) {
+      return $candidate
+    }
+
+    Write-Host "Invalid port. Enter an integer from 1 to 65535."
   }
 }
 
@@ -477,11 +507,15 @@ if ([string]::IsNullOrWhiteSpace($Image)) {
   $Image = "$($spec.ImageRepository):$Tag"
 }
 
+if (-not $PSBoundParameters.ContainsKey("Port")) {
+  $Port = Read-HostPort 5000
+}
+
 if ([string]::IsNullOrWhiteSpace($Memory)) { $Memory = $spec.DefaultMemory }
 if ([string]::IsNullOrWhiteSpace($Cpus)) { $Cpus = $spec.DefaultCpus }
 
 Write-Host ("Image              : {0}" -f $Image)
-Write-Host ("Runtime resources  : memory={0}, cpus={1}, port={2}:5000" -f $Memory, $Cpus, $Port)
+Write-Host ("Offline runtime    : memory={0}, cpus={1}, host port mapping={2}:5000" -f $Memory, $Cpus, $Port)
 
 Write-Host ""
 Write-Host "Please input disconnected Speech resource settings for license/runtime:"
@@ -575,6 +609,7 @@ try {
   "Script started at: $($scriptStartTime.ToString("yyyy-MM-dd HH:mm:ss"))" | Out-File -FilePath $buildLogPath -Encoding utf8 -Force
   "Container: $Container" | Out-File -FilePath $buildLogPath -Encoding utf8 -Append
   "Image: $Image" | Out-File -FilePath $buildLogPath -Encoding utf8 -Append
+  "Offline runtime port mapping: ${Port}:5000" | Out-File -FilePath $buildLogPath -Encoding utf8 -Append
 
   # ===========================
   # Pull image & save tar
@@ -601,10 +636,14 @@ try {
 
     Remove-DockerContainerQuiet $modelContainerName
 
+    $modelDownloadPort = Get-AvailableTcpPort
+    Write-Host ("Temporary model download port: {0}:5000" -f $modelDownloadPort)
+    "Temporary model download port: ${modelDownloadPort}:5000" | Out-File -FilePath $buildLogPath -Encoding utf8 -Append
+
     $modelArgs = @(
       "run", "-d",
       "--name", $modelContainerName,
-      "-p", "${Port}:5000",
+      "-p", "${modelDownloadPort}:5000",
       "--memory", $Memory,
       "--cpus", $Cpus,
       "-v", "${ModelsDir}:/usr/local/models",
@@ -616,7 +655,7 @@ try {
     )
 
     Invoke-DockerCapture $modelArgs $buildLogPath "docker run model download"
-    Wait-ForReadyEndpoint $Port $modelContainerName $buildLogPath $ModelDownloadTimeoutMinutes
+    Wait-ForReadyEndpoint $modelDownloadPort $modelContainerName $buildLogPath $ModelDownloadTimeoutMinutes
     Remove-DockerContainerQuiet $modelContainerName
 
     $modelFiles = Get-ChildItem -LiteralPath $ModelsDir -Recurse -File -ErrorAction SilentlyContinue
@@ -646,7 +685,6 @@ try {
   $licenseArgs = @(
     "run", "-d",
     "--name", $licenseContainerName,
-    "-p", "${Port}:5000",
     "-v", "${LicenseDir}:/license"
   )
 

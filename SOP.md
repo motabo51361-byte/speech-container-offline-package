@@ -228,7 +228,13 @@ script 會要求選擇：
 3) neural-text-to-speech
 ```
 
-接著輸入 image tag、resource key、endpoint 等資訊。
+接著輸入 image tag、離線 runtime host port、resource key、endpoint 等資訊。未透過 `-Port` 指定時，script 會在下載前詢問：
+
+```text
+OFFLINE_RUNTIME_HOST_PORT [5000]:
+```
+
+直接按 Enter 會使用 host port `5000`。例如輸入 `5001`，產出的 Compose 會設定 `"5001:5000"`，也就是 host `5001` 對應 container 內固定的 `5000`。這個設定只影響產出的 `run-disconnected-container-docker-compose.yaml`；model/license 下載 container 會使用獨立的臨時 port。非互動執行可直接加上 `-Port 5001`。
 
 選擇 `speech-to-text` 時，script 會向 MCR 即時查詢並顯示 `zh-TW` 與 `en-US` 各自最新的 stable amd64 tag：
 
@@ -514,7 +520,7 @@ Linux 離線 server 需要：
 - Docker Compose plugin。
 - `tar`。
 - CPU 支援 AVX2。
-- 可綁定 host port `5000`。
+- 可綁定打包時選擇的 host port；未指定時預設為 `5000`。
 
 確認：
 
@@ -976,7 +982,7 @@ Linux：
 sudo ss -ltnp | grep ':5000'
 ```
 
-修改 compose：
+建議重新打包並指定 `-Port 5001`；若 package 已交付，也可以直接修改 compose：
 
 ```yaml
 ports:
