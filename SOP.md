@@ -488,22 +488,14 @@ Runtime container name 可從 `package-manifest.txt` 取得，也可由前一個
 
 ## 5.6 驗證服務
 
-通用 ready check：
+先從 `package-manifest.txt` 的 `Runtime host URL` 確認本 package 的 host port。以下假設本次選擇 `5001`：
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://localhost:5000/ready
-```
+$HostPort = 5001
 
-通用 status check：
-
-```powershell
-Invoke-WebRequest -UseBasicParsing http://localhost:5000/status
-```
-
-查看 Swagger：
-
-```powershell
-Start-Process http://localhost:5000/swagger
+Invoke-WebRequest -UseBasicParsing "http://localhost:$HostPort/ready"
+Invoke-WebRequest -UseBasicParsing "http://localhost:$HostPort/status"
+Start-Process "http://localhost:$HostPort/swagger"
 ```
 
 離線 server 若不能開瀏覽器，可只保留 `/ready` 與 container log 驗證。
@@ -646,15 +638,19 @@ Runtime container name 可從 `package-manifest.txt` 取得，也可由前一個
 
 ## 6.8 驗證服務
 
+先從 `package-manifest.txt` 的 `Runtime host URL` 確認本 package 的 host port。以下假設本次選擇 `5001`：
+
 ```bash
-curl -fsS http://localhost:5000/ready
-curl -fsS http://localhost:5000/status
+HOST_PORT=5001
+
+curl -fsS "http://localhost:${HOST_PORT}/ready"
+curl -fsS "http://localhost:${HOST_PORT}/status"
 ```
 
 若離線環境允許，可從瀏覽器開：
 
 ```text
-http://localhost:5000/swagger
+http://localhost:5001/swagger
 ```
 
 ## 6.9 停止 container
@@ -773,27 +769,31 @@ docker compose --project-directory . -f ./archive/run-disconnected-container-doc
 STT 與 Custom STT 使用 WebSocket host URL：
 
 ```text
-ws://localhost:5000
+ws://localhost:<host-port>
 ```
+
+`<host-port>` 使用 `package-manifest.txt` 的 `Runtime host URL` 所列 port。以下程式範例假設 STT 的 host port 是 `5001`。
 
 應用程式必須使用 host authentication。不要使用 subscription key + region 初始化，否則 SDK 會連到 public Speech service；在完全離線環境會失敗。
 
 C# 範例：
 
 ```csharp
-var config = SpeechConfig.FromHost(new Uri("ws://localhost:5000"));
+var hostPort = 5001;
+var config = SpeechConfig.FromHost(new Uri($"ws://localhost:{hostPort}"));
 ```
 
 Python 範例：
 
 ```python
-speech_config = speechsdk.SpeechConfig(host="ws://localhost:5000")
+host_port = 5001
+speech_config = speechsdk.SpeechConfig(host=f"ws://localhost:{host_port}")
 ```
 
 Speech CLI 範例：
 
 ```powershell
-spx recognize --host ws://localhost:5000/ --key none --file sample.wav
+spx recognize --host ws://localhost:5001/ --key none --file sample.wav
 ```
 
 ## 8.2 Neural text to speech
@@ -801,25 +801,29 @@ spx recognize --host ws://localhost:5000/ --key none --file sample.wav
 NTTS 使用 HTTP host URL：
 
 ```text
-http://localhost:5000
+http://localhost:<host-port>
 ```
+
+`<host-port>` 使用 NTTS package 的 `Runtime host URL` 所列 port。以下程式範例假設 NTTS 的 host port 是 `5004`。
 
 C# 範例：
 
 ```csharp
-var config = SpeechConfig.FromHost(new Uri("http://localhost:5000"));
+var hostPort = 5004;
+var config = SpeechConfig.FromHost(new Uri($"http://localhost:{hostPort}"));
 ```
 
 Python 範例：
 
 ```python
-speech_config = speechsdk.SpeechConfig(host="http://localhost:5000")
+host_port = 5004
+speech_config = speechsdk.SpeechConfig(host=f"http://localhost:{host_port}")
 ```
 
 Speech CLI 範例：
 
 ```powershell
-spx synthesize --host http://localhost:5000/ --key none --text "Hello"
+spx synthesize --host http://localhost:5004/ --key none --text "Hello"
 ```
 
 NTTS 的 SSML `voice name` 必須與 container image 的 locale/voice 對應。例如 en-US AriaNeural：
@@ -847,22 +851,24 @@ container 會把 usage records 寫到 `azure-ai-speech/output`。請將此目錄
 
 ## 9.2 查詢 usage records
 
-可查詢全部 usage summary：
+可查詢全部 usage summary。以下範例的 host port 是 `5001`，實際值請以 `package-manifest.txt` 為準：
 
 ```powershell
-Invoke-RestMethod http://localhost:5000/records/usage-logs/
+$HostPort = 5001
+Invoke-RestMethod "http://localhost:$HostPort/records/usage-logs/"
 ```
 
 Linux：
 
 ```bash
-curl -sS http://localhost:5000/records/usage-logs/
+HOST_PORT=5001
+curl -sS "http://localhost:${HOST_PORT}/records/usage-logs/"
 ```
 
-也可查詢指定月份與年份：
+指定月份與年份的 URL 格式：
 
 ```text
-http://localhost:5000/records/usage-logs/{MONTH}/{YEAR}
+http://localhost:<host-port>/records/usage-logs/{MONTH}/{YEAR}
 ```
 
 ## 9.3 license 更新
@@ -956,9 +962,14 @@ cpus: "8"
 請確認 SDK 初始化方式。離線環境必須使用 host：
 
 ```csharp
-SpeechConfig.FromHost(new Uri("ws://localhost:5000"));
-SpeechConfig.FromHost(new Uri("http://localhost:5000"));
+var sttHostPort = 5001;
+var nttsHostPort = 5004;
+
+SpeechConfig.FromHost(new Uri($"ws://localhost:{sttHostPort}"));
+SpeechConfig.FromHost(new Uri($"http://localhost:{nttsHostPort}"));
 ```
+
+以上數字只是範例，實際 port 請從各 package 的 `package-manifest.txt` 取得。
 
 不要使用：
 
@@ -972,39 +983,26 @@ Speech CLI 必須加：
 --key none
 ```
 
-## 問題 6：port 5000 被占用
+## 問題 6：選定的 host port 被占用
+
+先從 `package-manifest.txt` 確認該 package 選定的 host port。以下假設為 `5001`。
 
 Windows：
 
 ```powershell
-Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue |
+$HostPort = 5001
+Get-NetTCPConnection -LocalPort $HostPort -ErrorAction SilentlyContinue |
   Select-Object LocalAddress, LocalPort, State, OwningProcess
 ```
 
 Linux：
 
 ```bash
-sudo ss -ltnp | grep ':5000'
+HOST_PORT=5001
+sudo ss -ltnp | grep ":${HOST_PORT}"
 ```
 
-建議重新打包並指定 `-Port 5001`；若 package 已交付，也可以直接修改 compose：
-
-```yaml
-ports:
-  - "5001:5000"
-```
-
-STT / Custom STT host 改為：
-
-```text
-ws://localhost:5001
-```
-
-NTTS host 改為：
-
-```text
-http://localhost:5001
-```
+標準處理方式是在有網路的打包機重新執行 script，透過互動提示或 `-Port <new-port>` 選擇另一個現場未使用的 host port，再攜帶新 package 進場。不要修改 mapping 右側的 container port `5000`；Speech container 內部固定使用 `5000`。應用程式則連到新 package manifest 顯示的 `Runtime host URL`。
 
 ---
 
