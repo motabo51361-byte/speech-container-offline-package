@@ -236,16 +236,18 @@ OFFLINE_RUNTIME_HOST_PORT [5000]:
 
 直接按 Enter 會使用 host port `5000`。例如輸入 `5001`，產出的 Compose 會設定 `"5001:5000"`，也就是 host `5001` 對應 container 內固定的 `5000`。這個設定只影響產出的 `run-disconnected-container-docker-compose.yaml`；model/license 下載 container 會使用獨立的臨時 port。非互動執行可直接加上 `-Port 5001`。
 
-script 會依 container 類型、可辨識的 locale 與 host port，自動產生唯一的 Compose service、`container_name` 與 network name。例如：
+script 產生的 Compose service 與 `container_name` 不會包含 host port。STT 會加入 locale 以區分語系，預設名稱如下：
 
 ```text
-zh-TW STT，host port 5001 -> azure-ai-speech-stt-zh-tw-5001
-en-US STT，host port 5002 -> azure-ai-speech-stt-en-us-5002
-Custom STT，host port 5003 -> azure-ai-speech-custom-stt-5003
-Neural TTS，host port 5004 -> azure-ai-speech-ntts-5004
+zh-TW STT -> azure-ai-speech-stt-zh-tw
+en-US STT -> azure-ai-speech-stt-en-us
+Custom STT -> azure-ai-speech-custom-stt
+Neural TTS -> azure-ai-speech-ntts
 ```
 
-實際名稱也會寫入 package 內的 `package-manifest.txt`。只要每個 package 選擇不同且現場未被占用的 host port，便不需要手動修改 run YAML。每個 package 仍應解壓到獨立的 release 目錄，避免相對路徑的 license、model 與 output volume 互相覆蓋。
+所有 container 都會加入 external Docker network `meebot`。實際 container 與 network 名稱會寫入 package 內的 `package-manifest.txt`。若同一台主機需要執行兩個 Custom STT 或兩個 NTTS，請在打包時使用 `-RuntimeContainerName <unique-name>` 指定唯一名稱；此設定會直接寫入 run YAML，不需要現場修改。
+
+只要每個 package 選擇不同且現場未被占用的 host port，便不需要手動修改 run YAML。每個 package 仍應解壓到獨立的 release 目錄，避免相對路徑的 license、model 與 output volume 互相覆蓋。
 
 選擇 `speech-to-text` 時，script 會向 MCR 即時查詢並顯示 `zh-TW` 與 `en-US` 各自最新的 stable amd64 tag：
 
@@ -463,7 +465,16 @@ docker images | Select-String "azure-cognitive-services/speechservices"
 
 ## 5.5 啟動 container
 
-重要：請在 package 解壓根目錄執行，並加上 `--project-directory .`，確保 compose 裡的相對 volume path 指到目前 release 目錄。
+重要：請在 package 解壓根目錄執行，並加上 `--project-directory .`，確保 compose 裡的相對 volume path 指到目前 release 目錄。run YAML 使用 external network `meebot`；第一次啟動前先以 idempotent 方式確認或建立：
+
+```powershell
+docker network inspect meebot *> $null
+if ($LASTEXITCODE -ne 0) {
+  docker network create meebot
+}
+```
+
+接著啟動：
 
 ```powershell
 docker compose `
@@ -613,7 +624,13 @@ docker images | grep 'azure-cognitive-services/speechservices'
 
 ## 6.7 啟動 container
 
-請在 package 解壓根目錄執行：
+請在 package 解壓根目錄執行。run YAML 使用 external network `meebot`；第一次啟動前先以 idempotent 方式確認或建立：
+
+```bash
+docker network inspect meebot >/dev/null 2>&1 || docker network create meebot
+```
+
+接著啟動：
 
 ```bash
 docker compose \
