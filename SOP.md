@@ -402,6 +402,14 @@ image tar 的實際檔名如下：
 }
 ```
 
+例如驗證 Custom STT package 時，看到下列**綠色訊息**，且前面沒有紅色錯誤，才代表 SHA256 驗證成功：
+
+```text
+SHA256 verified: package-azure-ai-custom-speech-to-text-container-20260723_120000.tar.gz
+```
+
+若出現 `SHA256 mismatch`，代表 package 的實際 hash 與 `.sha256` 記錄不符，請勿交付或解壓使用；應重新複製或重新產生 package。若顯示找不到 package 或 `.sha256`，則是檔案缺漏或檔名不一致，尚未完成 hash 驗證。
+
 ---
 
 # 5. Windows 離線部署
@@ -487,6 +495,18 @@ Set-Location $ReleaseDir
   Write-Host "SHA256 verified: $($pkg.Name)" -ForegroundColor Green
 }
 ```
+
+例如驗證 Custom STT package 時，看到下列**綠色訊息**，且前面沒有紅色錯誤，才代表 SHA256 驗證成功，可以繼續解壓：
+
+```text
+SHA256 verified: package-azure-ai-custom-speech-to-text-container-20260723_120000.tar.gz
+```
+
+其他結果的處理方式：
+
+- `SHA256 mismatch`：package 內容與 checksum 不符。請勿解壓或啟動，應重新複製 package 與同名 `.sha256`；若仍失敗，請在打包機重新產生。
+- `Expected exactly one Speech container package...`：目前 release 目錄不是剛好一個 `.tar.gz` package。請確認所在目錄，並移除放錯位置的其他 package。
+- 找不到 `.sha256`：checksum sidecar 未複製、檔名被修改，或未與 package 放在同一目錄，尚未完成 hash 驗證。
 
 ## 5.3 解壓 package
 
@@ -664,6 +684,14 @@ PACKAGE="${packages[0]}"
 SHA_FILE="${PACKAGE}.sha256"
 sha256sum -c "$SHA_FILE"
 ```
+
+例如驗證 Custom STT package 時，看到下列訊息中的 `OK`，才代表 SHA256 驗證成功，可以繼續解壓：
+
+```text
+package-azure-ai-custom-speech-to-text-container-20260723_120000.tar.gz: OK
+```
+
+若顯示 `FAILED`、`no properly formatted checksum lines found` 或找不到檔案，均不算驗證成功。請勿解壓或啟動，先確認 package 與同名 `.sha256` 是否完整且位於同一目錄。
 
 若 package 檔名被修改，改用手動比對：
 
