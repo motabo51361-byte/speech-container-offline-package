@@ -506,10 +506,19 @@ $HostPort = 5001
 
 Invoke-WebRequest -UseBasicParsing "http://localhost:$HostPort/ready"
 Invoke-WebRequest -UseBasicParsing "http://localhost:$HostPort/status"
+```
+
+兩個請求皆回傳 HTTP 200，代表 container 已就緒，且啟動時載入的離線授權可用。
+
+`speech-to-text` 與 `custom-speech-to-text` 使用 WebSocket 查詢介面，沒有可用的 REST Swagger UI；開啟 `/swagger` 若顯示 HTTP 404 是正常現象，不代表服務啟動失敗。請依[第 8 章](#8-應用程式串接方式)使用 Speech SDK 或 Speech CLI 完成功能測試。
+
+只有 `neural-text-to-speech` 需要時才開啟 Swagger：
+
+```powershell
 Start-Process "http://localhost:$HostPort/swagger"
 ```
 
-離線 server 若不能開瀏覽器，可只保留 `/ready` 與 container log 驗證。
+離線 server 若不能開瀏覽器，可使用 `/ready`、`/status`、container log 與應用程式測試案例驗證。
 
 ## 5.7 停止 container
 
@@ -664,7 +673,11 @@ curl -fsS "http://localhost:${HOST_PORT}/ready"
 curl -fsS "http://localhost:${HOST_PORT}/status"
 ```
 
-若離線環境允許，可從瀏覽器開：
+兩個請求皆成功，代表 container 已就緒，且啟動時載入的離線授權可用。
+
+`speech-to-text` 與 `custom-speech-to-text` 使用 WebSocket 查詢介面，沒有可用的 REST Swagger UI；開啟 `/swagger` 若顯示 HTTP 404 是正常現象，不代表服務啟動失敗。請依[第 8 章](#8-應用程式串接方式)使用 Speech SDK 或 Speech CLI 完成功能測試。
+
+只有 `neural-text-to-speech` 需要時才從瀏覽器開啟：
 
 ```text
 http://localhost:5001/swagger
