@@ -378,26 +378,28 @@ image tar 的實際檔名如下：
 - Custom STT：`oci-azure-ai-custom-speech-to-text.tar`
 - Neural TTS：`oci-azure-ai-neural-text-to-speech.tar`
 
-檢查最新產生 package 的 SHA256；此寫法適用三種 container，不需要先輸入 language code：
+檢查最新產生 package 的 SHA256；此寫法適用三種 container，不需要先輸入 language code。請將從 `. {` 到最後一個 `}` 的內容一次完整貼入 PowerShell Console；開頭的點號是指令的一部分，不要省略：
 
 ```powershell
-$pkg = Get-ChildItem -Path .\archive -Filter "package-azure-ai-*-container-*.tar.gz" -File |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
+. {
+  $pkg = Get-ChildItem -Path .\archive -Filter "package-azure-ai-*-container-*.tar.gz" -File |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
 
-if ($null -eq $pkg) {
-  throw "No Speech container package was found under .\archive."
+  if ($null -eq $pkg) {
+    throw "No Speech container package was found under .\archive."
+  }
+
+  $shaFile = Get-Item "$($pkg.FullName).sha256"
+  $expectedHash = ((Get-Content $shaFile.FullName -Raw).Trim() -split '\s+')[0]
+  $actualHash = (Get-FileHash $pkg.FullName -Algorithm SHA256).Hash
+
+  if ($actualHash -ine $expectedHash) {
+    throw "SHA256 mismatch: $($pkg.Name)"
+  }
+
+  Write-Host "SHA256 verified: $($pkg.Name)" -ForegroundColor Green
 }
-
-$shaFile = Get-Item "$($pkg.FullName).sha256"
-$expectedHash = ((Get-Content $shaFile.FullName -Raw).Trim() -split '\s+')[0]
-$actualHash = (Get-FileHash $pkg.FullName -Algorithm SHA256).Hash
-
-if ($actualHash -ine $expectedHash) {
-  throw "SHA256 mismatch: $($pkg.Name)"
-}
-
-"SHA256 verified: $($pkg.Name)"
 ```
 
 ---
@@ -463,25 +465,27 @@ Set-Location $ReleaseDir
 
 ## 5.2 驗證 package
 
-以下指令會從目前 release 目錄自動取得唯一的 package，三種 container 都適用，不需要輸入 language code：
+以下指令會從目前 release 目錄自動取得唯一的 package，三種 container 都適用，不需要輸入 language code。請將從 `. {` 到最後一個 `}` 的內容一次完整貼入 PowerShell Console；開頭的點號是指令的一部分，不要省略。這種寫法會保留 `$pkg`，可直接供第 5.3 節使用：
 
 ```powershell
-$packages = @(Get-ChildItem -Path . -Filter "package-azure-ai-*-container-*.tar.gz" -File)
+. {
+  $packages = @(Get-ChildItem -Path . -Filter "package-azure-ai-*-container-*.tar.gz" -File)
 
-if ($packages.Count -ne 1) {
-  throw "Expected exactly one Speech container package in this release directory; found $($packages.Count)."
+  if ($packages.Count -ne 1) {
+    throw "Expected exactly one Speech container package in this release directory; found $($packages.Count)."
+  }
+
+  $pkg = $packages[0]
+  $shaFile = Get-Item "$($pkg.FullName).sha256"
+  $expectedHash = ((Get-Content $shaFile.FullName -Raw).Trim() -split '\s+')[0]
+  $actualHash = (Get-FileHash $pkg.FullName -Algorithm SHA256).Hash
+
+  if ($actualHash -ine $expectedHash) {
+    throw "SHA256 mismatch: $($pkg.Name)"
+  }
+
+  Write-Host "SHA256 verified: $($pkg.Name)" -ForegroundColor Green
 }
-
-$pkg = $packages[0]
-$shaFile = Get-Item "$($pkg.FullName).sha256"
-$expectedHash = ((Get-Content $shaFile.FullName -Raw).Trim() -split '\s+')[0]
-$actualHash = (Get-FileHash $pkg.FullName -Algorithm SHA256).Hash
-
-if ($actualHash -ine $expectedHash) {
-  throw "SHA256 mismatch: $($pkg.Name)"
-}
-
-"SHA256 verified: $($pkg.Name)"
 ```
 
 ## 5.3 解壓 package
