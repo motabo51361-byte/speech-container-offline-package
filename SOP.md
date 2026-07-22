@@ -247,7 +247,7 @@ Neural TTS -> azure-ai-speech-ntts
 
 所有 container 都會加入 external Docker network `meebot`。實際 container 與 network 名稱會寫入 package 內的 `package-manifest.txt`。若同一台主機需要執行兩個 Custom STT 或兩個 NTTS，請在打包時使用 `-RuntimeContainerName <unique-name>` 指定唯一名稱；此設定會直接寫入 run YAML，不需要現場修改。
 
-只要每個 package 選擇不同且現場未被占用的 host port，便不需要手動修改 run YAML。每個 package 仍應解壓到獨立的 release 目錄，避免相對路徑的 license、model 與 output volume 互相覆蓋。
+只要每個 package 選擇不同且現場未被占用的 host port，便不需要手動修改 run YAML。每個 package 仍應解壓到所屬語系或 container instance 分類下的獨立 release 目錄，避免相對路徑的 license、model 與 output volume 互相覆蓋。
 
 選擇 `speech-to-text` 時，script 會向 MCR 即時查詢並顯示 `zh-TW` 與 `en-US` 各自最新的 stable amd64 tag：
 
@@ -337,23 +337,34 @@ SPEECH_LICENSE_ENDPOINT_URI
 
 ## 4.6 預期輸出
 
-成功後只保留：
+每次執行只會產生所選 container 類型的一組交付檔案。實際檔名如下：
 
 ```text
+# speech-to-text
 archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
 archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
 archive\package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.sha256
+
+# custom-speech-to-text
+archive\package-azure-ai-custom-speech-to-text-container-<timestamp>.tar.gz
+archive\package-azure-ai-custom-speech-to-text-container-<timestamp>.tar.gz.log
+archive\package-azure-ai-custom-speech-to-text-container-<timestamp>.tar.gz.sha256
+
+# neural-text-to-speech
+archive\package-azure-ai-neural-text-to-speech-container-<timestamp>.tar.gz
+archive\package-azure-ai-neural-text-to-speech-container-<timestamp>.tar.gz.log
+archive\package-azure-ai-neural-text-to-speech-container-<timestamp>.tar.gz.sha256
 ```
 
-Speech-to-text 的 `<language-code>` 會依所選 image tag 自動填入 `zh-tw` 或 `en-us`；build log 與 checksum 一律使用完整 package 檔名加上 `.log` 與 `.sha256`。
+只有 Speech-to-text 的檔名會依所選 image tag 自動加入 `zh-tw` 或 `en-us`。Custom STT 與 Neural TTS 的 package 檔名不含 language code。build log 與 checksum 一律使用完整 package 檔名加上 `.log` 與 `.sha256`。
 
 package 內容大致如下：
 
 ```text
 archive\
-  oci-azure-ai-speech-to-text-<language-code>.tar
   run-disconnected-container-docker-compose.yaml
-  package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
+  <完整 package 檔名>.log
+  <對應 container 的 image tar>
 azure-ai-speech\
   license\
   output\
@@ -361,17 +372,32 @@ azure-ai-speech\
 package-manifest.txt
 ```
 
-檢查 SHA256：
+image tar 的實際檔名如下：
+
+- Speech-to-text：`oci-azure-ai-speech-to-text-<language-code>.tar`
+- Custom STT：`oci-azure-ai-custom-speech-to-text.tar`
+- Neural TTS：`oci-azure-ai-neural-text-to-speech.tar`
+
+檢查最新產生 package 的 SHA256；此寫法適用三種 container，不需要先輸入 language code：
 
 ```powershell
-$languageCode = "zh-tw" # Change to en-us when verifying that package.
-$pkg = Get-ChildItem ".\archive\package-azure-ai-speech-to-text-$languageCode-container-*.tar.gz" |
+$pkg = Get-ChildItem -Path .\archive -Filter "package-azure-ai-*-container-*.tar.gz" -File |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1
-$shaFile = Get-Item "$($pkg.FullName).sha256"
 
-Get-Content $shaFile.FullName
-Get-FileHash $pkg.FullName -Algorithm SHA256
+if ($null -eq $pkg) {
+  throw "No Speech container package was found under .\archive."
+}
+
+$shaFile = Get-Item "$($pkg.FullName).sha256"
+$expectedHash = ((Get-Content $shaFile.FullName -Raw).Trim() -split '\s+')[0]
+$actualHash = (Get-FileHash $pkg.FullName -Algorithm SHA256).Hash
+
+if ($actualHash -ine $expectedHash) {
+  throw "SHA256 mismatch: $($pkg.Name)"
+}
+
+"SHA256 verified: $($pkg.Name)"
 ```
 
 ---
@@ -380,53 +406,83 @@ Get-FileHash $pkg.FullName -Algorithm SHA256
 
 ## 5.1 建議目錄結構
 
-離線 Windows server 建議用 release 目錄管理版本：
+離線 Windows server 建議先依語系或 container 用途分類，再於各分類下使用 release 目錄管理版本：
 
 ```text
 C:\AzureAISpeechOffline
-  releases\
-    20260706_150000\
+  zh-tw\
+    releases\
+      20260706_150000\
+  en-us\
+    releases\
+      20260706_150000\
+  custom\
+    releases\
+      20260706_150000\
+  neural-tts\
+    releases\
+      20260706_150000\
 ```
+
+`zh-tw` 與 `en-us` 用於一般 STT；Custom STT 使用 `custom`，不需要填 language code。若有多個 Custom STT instance，可改用 `custom-a`、`custom-b` 或其他可識別名稱，讓每個 instance 維持獨立的 release 歷程。
 
 建立 release 目錄：
 
 ```powershell
-$ReleaseDir = "C:\AzureAISpeechOffline\releases\20260706_150000"
+$Workload = "zh-tw" # 可改成 en-us、custom、neural-tts 或自訂 instance 名稱
+$ReleaseName = "20260706_150000"
+$ReleaseDir = Join-Path "C:\AzureAISpeechOffline\$Workload\releases" $ReleaseName
+
 New-Item -ItemType Directory -Path $ReleaseDir -Force
 ```
 
-將下列檔案複製到 release 目錄：
+每個 release 目錄只放一個 package，以及它同名的 build log 與 checksum。依本次選擇的 container 類型，複製下列其中一組檔案：
 
 ```text
+# speech-to-text
 package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz
 package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.log
 package-azure-ai-speech-to-text-<language-code>-container-<timestamp>.tar.gz.sha256
 
-package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz
-package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz.log
-package-azure-ai-<other-speech-container>-container-<timestamp>.tar.gz.sha256
+# custom-speech-to-text
+package-azure-ai-custom-speech-to-text-container-<timestamp>.tar.gz
+package-azure-ai-custom-speech-to-text-container-<timestamp>.tar.gz.log
+package-azure-ai-custom-speech-to-text-container-<timestamp>.tar.gz.sha256
+
+# neural-text-to-speech
+package-azure-ai-neural-text-to-speech-container-<timestamp>.tar.gz
+package-azure-ai-neural-text-to-speech-container-<timestamp>.tar.gz.log
+package-azure-ai-neural-text-to-speech-container-<timestamp>.tar.gz.sha256
 ```
 
 切換目錄：
 
 ```powershell
-cd $ReleaseDir
+Set-Location $ReleaseDir
 ```
 
 ## 5.2 驗證 package
 
+以下指令會從目前 release 目錄自動取得唯一的 package，三種 container 都適用，不需要輸入 language code：
+
 ```powershell
-$languageCode = "zh-tw" # Change to en-us when verifying that package.
-$pkg = Get-ChildItem ".\package-azure-ai-speech-to-text-$languageCode-container-*.tar.gz" |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
+$packages = @(Get-ChildItem -Path . -Filter "package-azure-ai-*-container-*.tar.gz" -File)
+
+if ($packages.Count -ne 1) {
+  throw "Expected exactly one Speech container package in this release directory; found $($packages.Count)."
+}
+
+$pkg = $packages[0]
 $shaFile = Get-Item "$($pkg.FullName).sha256"
+$expectedHash = ((Get-Content $shaFile.FullName -Raw).Trim() -split '\s+')[0]
+$actualHash = (Get-FileHash $pkg.FullName -Algorithm SHA256).Hash
 
-Get-Content $shaFile.FullName
-Get-FileHash $pkg.FullName -Algorithm SHA256
+if ($actualHash -ine $expectedHash) {
+  throw "SHA256 mismatch: $($pkg.Name)"
+}
+
+"SHA256 verified: $($pkg.Name)"
 ```
-
-確認 `Get-FileHash` 的值與 `$shaFile` 指定的 checksum 檔一致。
 
 ## 5.3 解壓 package
 
@@ -553,27 +609,54 @@ grep -q avx2 /proc/cpuinfo && echo AVX2 supported || echo No AVX2 support detect
 
 ## 6.2 建議目錄結構
 
+Linux 也先依語系或 container 用途分類，再於各分類下管理 release：
+
 ```text
 /opt/azure-ai-speech-offline
-  releases/
-    20260706_150000/
+  zh-tw/
+    releases/
+      20260706_150000/
+  en-us/
+    releases/
+      20260706_150000/
+  custom/
+    releases/
+      20260706_150000/
+  neural-tts/
+    releases/
+      20260706_150000/
 ```
+
+`zh-tw` 與 `en-us` 用於一般 STT；Custom STT 使用 `custom`，不需要填 language code。若有多個 Custom STT instance，請使用不同的分類名稱。
 
 建立 release 目錄：
 
 ```bash
-sudo mkdir -p /opt/azure-ai-speech-offline/releases/20260706_150000
-sudo chown -R "$USER":"$USER" /opt/azure-ai-speech-offline
-cd /opt/azure-ai-speech-offline/releases/20260706_150000
+WORKLOAD="zh-tw" # 可改成 en-us、custom、neural-tts 或自訂 instance 名稱
+RELEASE_NAME="20260706_150000"
+RELEASE_DIR="/opt/azure-ai-speech-offline/${WORKLOAD}/releases/${RELEASE_NAME}"
+
+sudo mkdir -p "$RELEASE_DIR"
+sudo chown -R "$USER":"$USER" "/opt/azure-ai-speech-offline/${WORKLOAD}"
+cd "$RELEASE_DIR"
 ```
 
-將 package、同名的 `.log` build log 與 `.sha256` checksum 檔放進此目錄；兩個 sidecar 檔名都會完整保留 package 名稱。
+將本次產生的 package、同名 `.log` build log 與 `.sha256` checksum 放進此目錄。實際檔名使用[第 5.1 節](#51-建議目錄結構)列出的三種格式；每個 release 目錄只能放一個 package。
 
 ## 6.3 驗證 package
 
+以下指令會自動取得目前 release 目錄內唯一的 package，三種 container 都適用，不需要輸入 language code：
+
 ```bash
-LANGUAGE_CODE="zh-tw" # Change to en-us when verifying that package.
-PACKAGE="$(ls -t package-azure-ai-speech-to-text-${LANGUAGE_CODE}-container-*.tar.gz | head -n 1)"
+shopt -s nullglob
+packages=(package-azure-ai-*-container-*.tar.gz)
+
+if (( ${#packages[@]} != 1 )); then
+  printf 'Expected exactly one Speech container package; found %s.\n' "${#packages[@]}" >&2
+  exit 1
+fi
+
+PACKAGE="${packages[0]}"
 SHA_FILE="${PACKAGE}.sha256"
 sha256sum -c "$SHA_FILE"
 ```
@@ -587,9 +670,10 @@ cat "$SHA_FILE"
 
 ## 6.4 解壓 package
 
+沿用第 6.3 節取得的 `$PACKAGE`：
+
 ```bash
-PKG="$(ls -t package-azure-ai-*-container-*.tar.gz | head -n 1)"
-tar -xzf "$PKG" -C .
+tar -xzf "$PACKAGE" -C .
 ```
 
 確認必要檔案：
@@ -698,25 +782,41 @@ docker compose \
 
 ## 7.1 更新原則
 
-不要把新版 package 直接解壓覆蓋舊版目錄。請使用 release 目錄保留 rollback 能力。
+不要把新版 package 直接解壓覆蓋舊版目錄。每個語系或 container instance 都要在自己的分類資料夾下使用 release 目錄，才能獨立更新與 rollback。
 
-Windows：
+Windows 範例：
 
 ```text
 C:\AzureAISpeechOffline
-  releases\
-    20260701_120000\   # 舊版
-    20260706_150000\   # 新版
+  zh-tw\
+    releases\
+      20260701_120000\   # 舊版
+      20260706_150000\   # 新版
+  en-us\
+    releases\
+      ...
+  custom\
+    releases\
+      ...
 ```
 
-Linux：
+Linux 範例：
 
 ```text
 /opt/azure-ai-speech-offline
-  releases/
-    20260701_120000/   # 舊版
-    20260706_150000/   # 新版
+  zh-tw/
+    releases/
+      20260701_120000/   # 舊版
+      20260706_150000/   # 新版
+  en-us/
+    releases/
+      ...
+  custom/
+    releases/
+      ...
 ```
+
+以下更新與 rollback 指令以 `zh-tw` 為例；處理其他 package 時，將 `$Workload` 或 `WORKLOAD` 改成 `en-us`、`custom`、`neural-tts` 或對應的 instance 分類名稱。
 
 ## 7.2 更新流程
 
@@ -730,14 +830,16 @@ Linux：
 Windows 停止舊版：
 
 ```powershell
-cd C:\AzureAISpeechOffline\releases\20260701_120000
+$Workload = "zh-tw"
+Set-Location "C:\AzureAISpeechOffline\$Workload\releases\20260701_120000"
 docker compose --project-directory . -f .\archive\run-disconnected-container-docker-compose.yaml down
 ```
 
 Windows 啟動新版：
 
 ```powershell
-cd C:\AzureAISpeechOffline\releases\20260706_150000
+$Workload = "zh-tw"
+Set-Location "C:\AzureAISpeechOffline\$Workload\releases\20260706_150000"
 $imageTar = Get-ChildItem .\archive\oci-azure-ai-*.tar | Select-Object -First 1
 docker load -i $imageTar.FullName
 docker compose --project-directory . -f .\archive\run-disconnected-container-docker-compose.yaml up -d
@@ -746,14 +848,16 @@ docker compose --project-directory . -f .\archive\run-disconnected-container-doc
 Linux 停止舊版：
 
 ```bash
-cd /opt/azure-ai-speech-offline/releases/20260701_120000
+WORKLOAD="zh-tw"
+cd "/opt/azure-ai-speech-offline/${WORKLOAD}/releases/20260701_120000"
 docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml down
 ```
 
 Linux 啟動新版：
 
 ```bash
-cd /opt/azure-ai-speech-offline/releases/20260706_150000
+WORKLOAD="zh-tw"
+cd "/opt/azure-ai-speech-offline/${WORKLOAD}/releases/20260706_150000"
 docker load -i "$(ls ./archive/oci-azure-ai-*.tar | head -n 1)"
 docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml up -d
 ```
@@ -763,17 +867,18 @@ docker compose --project-directory . -f ./archive/run-disconnected-container-doc
 若新版驗證失敗：
 
 1. 停止新版 container。
-2. 切回舊版 release 目錄。
+2. 切回同一分類的舊版 release 目錄。
 3. 重新 `docker load` 舊版 image。
 4. 使用舊版 compose 啟動。
 
 Windows：
 
 ```powershell
-cd C:\AzureAISpeechOffline\releases\20260706_150000
+$Workload = "zh-tw"
+Set-Location "C:\AzureAISpeechOffline\$Workload\releases\20260706_150000"
 docker compose --project-directory . -f .\archive\run-disconnected-container-docker-compose.yaml down
 
-cd C:\AzureAISpeechOffline\releases\20260701_120000
+Set-Location "C:\AzureAISpeechOffline\$Workload\releases\20260701_120000"
 $imageTar = Get-ChildItem .\archive\oci-azure-ai-*.tar | Select-Object -First 1
 docker load -i $imageTar.FullName
 docker compose --project-directory . -f .\archive\run-disconnected-container-docker-compose.yaml up -d
@@ -782,10 +887,11 @@ docker compose --project-directory . -f .\archive\run-disconnected-container-doc
 Linux：
 
 ```bash
-cd /opt/azure-ai-speech-offline/releases/20260706_150000
+WORKLOAD="zh-tw"
+cd "/opt/azure-ai-speech-offline/${WORKLOAD}/releases/20260706_150000"
 docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml down
 
-cd /opt/azure-ai-speech-offline/releases/20260701_120000
+cd "/opt/azure-ai-speech-offline/${WORKLOAD}/releases/20260701_120000"
 docker load -i "$(ls ./archive/oci-azure-ai-*.tar | head -n 1)"
 docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml up -d
 ```
