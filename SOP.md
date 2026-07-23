@@ -724,7 +724,13 @@ test -d ./azure-ai-speech/models
 
 ## 6.5 權限注意事項
 
-Microsoft 文件提醒，Speech container 掛載 `/license` 與 `/output` 時，host 端目錄要能讓 container 內的 nonroot user 寫入。
+Microsoft 官方文件在 disconnected container 的執行說明中明確要求：掛載 `/license` 與 `/output` 時，Linux host 端目錄的 ownership 必須讓 container 內的 `nonroot` user 能夠寫入。官方原文同時說明 `/output` 用來寫入 billing usage records，並提供 `sudo chown -R nonroot:nonroot ...` 作為範例。
+
+官方來源：
+
+- [Speech to text containers with Docker - Run the container with docker run](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-container-stt#run-the-container-with-docker-run)
+- [Custom speech to text containers with Docker - Run the disconnected container](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-container-cstt#run-the-disconnected-container)
+- [Neural text to speech containers with Docker - Run the container with docker run](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-container-ntts#run-the-container-with-docker-run)
 
 若 container log 顯示 license/output permission denied，請依客戶 Linux 權限政策調整。常見處理方式：
 
